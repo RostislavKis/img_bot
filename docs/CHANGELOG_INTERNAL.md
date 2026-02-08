@@ -145,6 +145,42 @@ COMFY_URL=http://192.168.1.100:8188 python tools/smoke_check.py
 - CI `.github/workflows/docs-workflows-reference.yml` не будет ловить ложные изменения
 - Коммиты станут чище (не будет diff на одну строку с timestamp)
 
+---
+
+## 2025-01-17 — T-004.2: Smoke-check на urllib (без зависимостей от requests)
+
+**Цель:** Убрать зависимость от `requests`, чтобы smoke-check работал в чистом venv без установки пакетов.
+
+**Тикет:** T-004.2
+
+**Обновлено:**
+- `tools/smoke_check.py` — переписан с использованием стандартной библиотеки
+  - Заменён `requests` на `urllib.request` (стандартная библиотека Python)
+  - Новая структура: `CheckResult` dataclass с `ok`, `status`, `elapsed_ms`, `error`, `data`
+  - Функция `_http_json()` — универсальный GET с таймаутом и парсингом JSON
+  - Функция `_print_endpoint()` — форматированный вывод результата (✅ OK / ❌ FAIL)
+  - Функция `_summarize()` — краткая сводка по ответу (ключи JSON, количество элементов в queue, количество нод)
+  - Убран корневой endpoint `/` (не нужен для проверки API)
+  - Проверяются: `/system_stats`, `/queue`, `/object_info`
+
+**Результат:**
+- Smoke-check теперь работает в чистом Python venv без `pip install requests`
+- Более стабильный (стандартная библиотека гарантированно есть)
+- Лучший вывод: показывает HTTP status, время ответа (ms), ошибки с контекстом
+- Exit codes: 0 (OK), 1 (FAIL), 2 (invalid args)
+
+**Использование:**
+
+```sh
+# Простая проверка
+python tools/smoke_check.py
+
+# С повторными попытками (полезно при старте ComfyUI)
+python tools/smoke_check.py --repeat 5 --delay 1.0
+
+# Кастомный URL и timeout
+python tools/smoke_check.py --url http://192.168.1.100:8188 --timeout 5.0
+
 
 
 
