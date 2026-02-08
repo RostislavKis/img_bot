@@ -180,6 +180,29 @@ python tools/smoke_check.py --repeat 5 --delay 1.0
 
 # Кастомный URL и timeout
 python tools/smoke_check.py --url http://192.168.1.100:8188 --timeout 5.0
+```
+
+---
+
+## 2025-01-17 — T-004.3: Нормализация line endings через .gitattributes
+
+**Цель:** Убрать постоянные предупреждения Git "LF will be replaced by CRLF" и избежать пустых коммитов из-за различий в окончаниях строк.
+
+**Тикет:** T-004.3
+
+**Обновлено:**
+- `.gitattributes` — полная переписка для Python проекта (вместо старого .NET шаблона)
+  - Установлено `* text=auto eol=lf` — все текстовые файлы хранятся в репо с LF
+  - Windows scripts (*.bat, *.cmd, *.ps1) — eol=crlf (правильно для Windows)
+  - Код и конфиги (*.py, *.yml, *.json, *.md) — eol=lf (Unix стиль)
+  - Shell scripts и hooks (.githooks/*, *.sh) — eol=lf (обязательно)
+  - Бинарные файлы помечены как `binary`: изображения, видео, модели ML (*.safetensors, *.pt, *.ckpt)
+
+**Результат:**
+- Git больше не предупреждает об автозамене LF↔CRLF при коммитах на Windows
+- CI/генераторы не создают "пустые" коммиты из-за различий в line endings
+- Репозиторий детерминированный: одинаковый контент → одинаковый git diff
+- Pre-commit hooks (в .githooks/) корректно работают на всех платформах
 
 
 
