@@ -67,12 +67,17 @@ class Settings(BaseSettings):
         Path(r"D:\ComfyUI\output"),
         alias="COMFY_OUTPUT_DIR",
     )
+    comfy_input_dir: Path = Field(
+        Path(r"D:\ComfyUI\input"),
+        alias="COMFYUI_INPUT_DIR",
+    )
     workflows_dir: Path = Field(BASE_DIR / "workflows", alias="WORKFLOWS_DIR")
 
-    # Storage / logs
+    # Storage / logs / temp
     db_path: Path = Field(BASE_DIR / "data" / "bot.db", alias="DB_PATH")
     logs_dir: Path = Field(BASE_DIR / "logs", alias="LOGS_DIR")
     log_level: str = Field("INFO", alias="LOG_LEVEL")
+    tmp_dir: Path = Field(BASE_DIR / "data" / "tmp", alias="BOT_TMP_DIR")
 
     # Queue
     max_concurrent_tasks: int = Field(1, alias="MAX_CONCURRENT_TASKS")

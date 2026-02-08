@@ -1,0 +1,76 @@
+name: Repository Sanity Check
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+
+jobs:
+  sanity:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Проверка структуры репозитория (Sanity Check)
+        run: |
+          set -e
+          
+          echo "🔍 Проверяем структуру img_bot репозитория..."
+          echo ""
+          
+          error_found=0
+          
+          # Проверка ключевых директорий
+          for dir in bot comfy utils workflows docs config; do
+            if [ ! -d "$dir" ]; then
+              echo "❌ НЕТУ директории: $dir/"
+              error_found=1
+            else
+              echo "✅ Есть директория: $dir/"
+            fi
+          done
+          
+          echo ""
+          
+          # Проверка CHANGELOG_INTERNAL.md
+          if [ ! -f "docs/CHANGELOG_INTERNAL.md" ]; then
+            echo "❌ НЕТУ файла: docs/CHANGELOG_INTERNAL.md"
+            error_found=1
+          else
+            echo "✅ Есть файл: docs/CHANGELOG_INTERNAL.md"
+          fi
+          
+          echo ""
+          
+          # Проверка что репозиторий не "пустой" — должен быть код
+          code_found=0
+          
+          if [ -f "main.py" ]; then
+            echo "✅ Найден main.py"
+            code_found=1
+          fi
+          
+          if find bot -type f -name "*.py" 2>/dev/null | head -1 | grep -q .; then
+            echo "✅ Найдены *.py файлы в bot/"
+            code_found=1
+          fi
+          
+          if [ "$code_found" = "0" ]; then
+            echo "❌ НЕТУ кода: не найден main.py и не найдено *.py в bot/"
+            error_found=1
+          fi
+          
+          echo ""
+          
+          # Результат проверки
+          if [ "$error_found" = "1" ]; then
+            echo "❌ ОШИБКА: репозиторий выглядит неполным."
+            echo "   Проверь что ты сделал git add -A перед push."
+            echo "   Нужны все папки проекта: bot/, comfy/, utils/, workflows/, docs/, config/"
+            exit 1
+          else
+            echo "🎉 ОК: все проверки пройдены. Репозиторий полный."
+            exit 0
+          fi

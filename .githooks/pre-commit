@@ -1,0 +1,4 @@
+#!/usr/bin/env python
+# Copilot-safe pre-commit (Windows-friendly)
+import runpy; runpy.run_path(r'.githooks\\pre_commit.py')
+

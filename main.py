@@ -40,6 +40,8 @@ async def _set_commands(bot: Bot) -> None:
         BotCommand(command="menu", description="Меню"),
         BotCommand(command="language", description="Язык / Language"),
         BotCommand(command="help", description="Справка"),
+        BotCommand(command="i2v", description="I2V режим (фото → видео)"),
+        BotCommand(command="videoq", description="Видео quality (480p)")
     ]
     try:
         await bot.set_my_commands(cmds)
@@ -52,12 +54,23 @@ async def run_bot(settings) -> int:
     if (not token) or ("YOUR_BOT_TOKEN" in token) or ("REPLACE" in token):
         log.error("BOT_TOKEN не задан или плейсхолдер. Впиши реальный токен в .env.local")
         return 2
+    
     await init_database(settings.db_path)
     repo = SQLiteRepository(settings.db_path)
     locales = LocaleManager()
+    
     bot = Bot(token=token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     await bot.delete_webhook(drop_pending_updates=True)
     await _set_commands(bot)
+    
+    # Инициализируем ComfyUI client и workflow loader
+    comfy_client = ComfyUIClient(settings.comfy_url, settings.comfy_timeout)
+    workflow_loader = WorkflowLoader(settings.workflows_dir)
+    
+    # Пробрасываем в бот для доступа из handlers (например, /status)
+    bot.comfy_client = comfy_client
+    bot.workflow_loader = workflow_loader
+    
     dp = Dispatcher(storage=MemoryStorage())
     auth = AuthMiddleware(settings.allowed_user_ids)
     i18n = I18nMiddleware(repo=repo, locales=locales, default_language=settings.default_language)
@@ -68,10 +81,12 @@ async def run_bot(settings) -> int:
     dp.include_router(start_router)
     dp.include_router(generate_router)
     dp.include_router(help_router)
+    
     log.info("Bot polling start")
     try:
         await dp.start_polling(bot, settings=settings)
     finally:
+        await comfy_client.close()
         await bot.session.close()
     return 0
 
@@ -95,3 +110,11 @@ async def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(asyncio.run(main()))
+
+# Подсказки по текстовым командам:
+# image: <prompt>      - генерация картинки
+# enhance: <ignored>   - улучшение последнего фото (или через кнопку)
+# edit: <prompt>       - редактирование последнего фото по промпту (или через кнопку)
+# video: <prompt>      - генерация видео
+#
+# Для фото удобнее: отправь фото -> выбери действие кнопкой.

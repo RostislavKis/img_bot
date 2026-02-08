@@ -1,14 +1,23 @@
+# Visual Studio
+.vs/
+*.sln.DotSettings.user
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
 # Виртуальное окружение
 .venv/
 venv/
 env/
 ENV/
-
-# Кэш Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
 
 # IDE
 .vscode/
