@@ -1,0 +1,14 @@
+{
+  "welcome": "🤖 Welcome to IMG_BOT!",
+  "select_language": "Select language:",
+  "main_menu": "🏠 Main menu:",
+  "choose_language_done": "✅ Language saved",
+  "help_text": "📖 This is a bot scaffold. Generation is already connected as MVP.",
+  "settings_text": "⚙️ Settings are not implemented yet.",
+  "enter_prompt": "✍️ Send prompt as a single message.",
+  "processing": "⏳ Processing...",
+  "done": "✅ Done!",
+  "error": "❌ Error:",
+  "access_denied": "⛔ Access denied.",
+  "back": "⬅️ Back"
+}

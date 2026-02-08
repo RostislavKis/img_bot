@@ -1,0 +1,59 @@
+{
+  "1": {
+    "inputs": {
+      "text": "a beautiful portrait, cinematic light, detailed, 4K, professional photography",
+      "clip": ["5", 1]
+    },
+    "class_type": "CLIPTextEncode"
+  },
+  "2": {
+    "inputs": {
+      "text": "low quality, blurry, distorted, ugly, bad quality, deformed",
+      "clip": ["5", 1]
+    },
+    "class_type": "CLIPTextEncode"
+  },
+  "3": {
+    "inputs": {
+      "seed": 0,
+      "steps": 20,
+      "cfg": 7.5,
+      "sampler_name": "euler",
+      "scheduler": "normal",
+      "denoise": 1.0,
+      "model": ["5", 0],
+      "positive": ["1", 0],
+      "negative": ["2", 0],
+      "latent_image": ["4", 0]
+    },
+    "class_type": "KSampler"
+  },
+  "4": {
+    "inputs": {
+      "width": 1024,
+      "height": 1024,
+      "batch_size": 1
+    },
+    "class_type": "EmptyLatentImage"
+  },
+  "5": {
+    "inputs": {
+      "ckpt_name": "sd_xl_base_1.0.safetensors"
+    },
+    "class_type": "CheckpointLoaderSimple"
+  },
+  "6": {
+    "inputs": {
+      "samples": ["3", 0],
+      "vae": ["5", 2]
+    },
+    "class_type": "VAEDecode"
+  },
+  "7": {
+    "inputs": {
+      "filename_prefix": "sdxl_gen",
+      "images": ["6", 0]
+    },
+    "class_type": "SaveImage"
+  }
+}

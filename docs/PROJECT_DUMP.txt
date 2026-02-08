@@ -1,0 +1,245 @@
+====================================================================================================
+PROJECT DUMP - 2026-02-07 18:45:57
+Python: 3.11.9
+OS: Windows 10
+Project: C:\dev\img_bot
+====================================================================================================
+
+VERSIONS:
+  aiogram: 3.24.0
+  httpx: 0.28.1
+  pydantic: 2.12.5
+
+PROJECT TREE:
+|-- main.py
+|-- README.md
+|-- requirements.txt
+|-- start_bot.cmd
+|-- start_comfyui.cmd
+|-- bot/
+|   |-- __init__.py
+|   |-- states.py
+|   |-- handlers/
+|   |   |-- __init__.py
+|   |   |-- generate.py
+|   |   |-- generate.py.bak
+|   |   |-- help.py
+|   |   |-- settings.py
+|   |   |-- start.py
+|   |-- keyboards/
+|   |   |-- __init__.py
+|   |   |-- main_menu.py
+|   |-- middlewares/
+|   |   |-- __init__.py
+|   |   |-- auth.py
+|   |   |-- i18n.py
+|-- comfy/
+|   |-- __init__.py
+|   |-- client.py
+|   |-- models.py
+|   |-- workflow_loader.py
+|-- config/
+|   |-- __init__.py
+|   |-- settings.py
+|   |-- settings.py.bak
+|-- core/
+|   |-- __init__.py
+|   |-- models.py
+|   |-- task_queue.py
+|-- docs/
+|   |-- AUDIT.md
+|   |-- CHANGES.md
+|   |-- HELP_TEXT.md
+|   |-- INDEX.md
+|   |-- INDEX_OLD.md
+|   |-- PROJECT_DUMP.txt
+|   |-- QUICKSTART.md
+|   |-- REPORT.md
+|   |-- SETTINGS.md
+|   |-- START_HERE.md
+|   |-- SUMMARY.md
+|   |-- TESTING.md
+|-- i18n/
+|   |-- __init__.py
+|   |-- loader.py
+|   |-- locales/
+|   |   |-- en.json
+|   |   |-- ru.json
+|-- llm/
+|   |-- __init__.py
+|   |-- adapter.py
+|   |-- providers/
+|   |   |-- __init__.py
+|-- storage/
+|   |-- __init__.py
+|   |-- database.py
+|   |-- repository.py
+|-- tools/
+|   |-- project_dump.py
+|-- utils/
+|   |-- __init__.py
+|   |-- helpers.py
+|   |-- logger.py
+|   |-- validators.py
+|-- workflows/
+|   |-- flux_dev_fp8.json
+|   |-- flux_dev_fp8.png
+|   |-- flux_schnell_fp8.json
+|   |-- flux_schnell_fp8.png
+|   |-- image_default.json
+|   |-- README.md
+|   |-- sdxl_base_refiner.json
+|   |-- video_default.json
+
+====================================================================================================
+WORKFLOW ANALYSIS
+====================================================================================================
+
+FILE: flux_dev_fp8.json
+  Format: flat
+  Nodes: 8
+  Class Types: CLIPTextEncode, CheckpointLoaderSimple, EmptySD3LatentImage, FluxGuidance, KSampler, SaveImage, VAEDecode
+  String Fields (6):
+    - node=6 class=CLIPTextEncode key=text
+    - node=9 class=SaveImage key=filename_prefix
+    - node=30 class=CheckpointLoaderSimple key=ckpt_name
+    - node=31 class=KSampler key=sampler_name
+    - node=31 class=KSampler key=scheduler
+    ... and 1 more
+  Special Keys:
+    - ckpt_name: 1 occurrence(s)
+        node=30 value=flux1-dev-fp8.safetensors
+    - width: 1 occurrence(s)
+        node=27 value=1024
+    - height: 1 occurrence(s)
+        node=27 value=1024
+    - steps: 1 occurrence(s)
+        node=31 value=20
+    - cfg: 1 occurrence(s)
+        node=31 value=1.0
+    - guidance: 1 occurrence(s)
+        node=35 value=3.5
+    - seed: 1 occurrence(s)
+        node=31 value=972054013131368
+  Prompt Injection Targets (2):
+    - node=33 class=CLIPTextEncode key=text
+    - node=6 class=CLIPTextEncode key=text
+
+FILE: flux_schnell_fp8.json
+  Format: flat
+  Nodes: 7
+  Class Types: CLIPTextEncode, CheckpointLoaderSimple, EmptySD3LatentImage, KSampler, SaveImage, VAEDecode
+  String Fields (6):
+    - node=6 class=CLIPTextEncode key=text
+    - node=9 class=SaveImage key=filename_prefix
+    - node=30 class=CheckpointLoaderSimple key=ckpt_name
+    - node=31 class=KSampler key=sampler_name
+    - node=31 class=KSampler key=scheduler
+    ... and 1 more
+  Special Keys:
+    - ckpt_name: 1 occurrence(s)
+        node=30 value=flux1-schnell-fp8.safetensors
+    - width: 1 occurrence(s)
+        node=27 value=1024
+    - height: 1 occurrence(s)
+        node=27 value=1024
+    - steps: 1 occurrence(s)
+        node=31 value=4
+    - cfg: 1 occurrence(s)
+        node=31 value=1.0
+    - seed: 1 occurrence(s)
+        node=31 value=173805153958730
+  Prompt Injection Targets (2):
+    - node=33 class=CLIPTextEncode key=text
+    - node=6 class=CLIPTextEncode key=text
+
+FILE: image_default.json
+  Format: flat
+  Nodes: 7
+  Class Types: CLIPTextEncode, CheckpointLoaderSimple, EmptyLatentImage, KSampler, SaveImage, VAEDecode
+  String Fields (6):
+    - node=4 class=CheckpointLoaderSimple key=ckpt_name
+    - node=1 class=CLIPTextEncode key=text
+    - node=2 class=CLIPTextEncode key=text
+    - node=3 class=KSampler key=sampler_name
+    - node=3 class=KSampler key=scheduler
+    ... and 1 more
+  Special Keys:
+    - ckpt_name: 1 occurrence(s)
+        node=4 value=sd15_model.safetensors
+    - width: 1 occurrence(s)
+        node=5 value=512
+    - height: 1 occurrence(s)
+        node=5 value=512
+    - steps: 1 occurrence(s)
+        node=3 value=20
+    - cfg: 1 occurrence(s)
+        node=3 value=7
+    - seed: 1 occurrence(s)
+        node=3 value=0
+  Prompt Injection Targets (2):
+    - node=1 class=CLIPTextEncode key=text
+    - node=2 class=CLIPTextEncode key=text
+
+FILE: sdxl_base_refiner.json
+  Format: flat
+  Nodes: 7
+  Class Types: CLIPTextEncode, CheckpointLoaderSimple, EmptyLatentImage, KSampler, SaveImage, VAEDecode
+  String Fields (6):
+    - node=1 class=CLIPTextEncode key=text
+    - node=2 class=CLIPTextEncode key=text
+    - node=3 class=KSampler key=sampler_name
+    - node=3 class=KSampler key=scheduler
+    - node=5 class=CheckpointLoaderSimple key=ckpt_name
+    ... and 1 more
+  Special Keys:
+    - ckpt_name: 1 occurrence(s)
+        node=5 value=sd_xl_base_1.0.safetensors
+    - width: 1 occurrence(s)
+        node=4 value=1024
+    - height: 1 occurrence(s)
+        node=4 value=1024
+    - steps: 1 occurrence(s)
+        node=3 value=20
+    - cfg: 1 occurrence(s)
+        node=3 value=7.5
+    - seed: 1 occurrence(s)
+        node=3 value=0
+  Prompt Injection Targets (2):
+    - node=1 class=CLIPTextEncode key=text
+    - node=2 class=CLIPTextEncode key=text
+
+FILE: video_default.json
+  Format: nodes_wrapper
+  Nodes: 7
+  Class Types: CLIPTextEncode, CheckpointLoaderSimple, EmptyLatentVideo, KSampler, VAEDecode, VHS_VideoCombine
+  String Fields (6):
+    - node=1 class=CLIPTextEncode key=text
+    - node=2 class=CLIPTextEncode key=text
+    - node=3 class=KSampler key=sampler_name
+    - node=3 class=KSampler key=scheduler
+    - node=4 class=CheckpointLoaderSimple key=ckpt_name
+    ... and 1 more
+  Special Keys:
+    - ckpt_name: 1 occurrence(s)
+        node=4 value=sd_xl_base_1.0.safetensors
+    - width: 1 occurrence(s)
+        node=5 value=512
+    - height: 1 occurrence(s)
+        node=5 value=512
+    - steps: 1 occurrence(s)
+        node=3 value=20
+    - cfg: 1 occurrence(s)
+        node=3 value=7.0
+    - seed: 1 occurrence(s)
+        node=3 value=0
+  Prompt Injection Targets (2):
+    - node=1 class=CLIPTextEncode key=text
+    - node=2 class=CLIPTextEncode key=text
+
+====================================================================================================
+SUMMARY
+====================================================================================================
+Workflow files: 5 OK, 0 ERRORS
+Report generated: 2026-02-07 18:45:57
+Output: C:\dev\img_bot\docs\PROJECT_DUMP.txt

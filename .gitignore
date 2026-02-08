@@ -1,0 +1,47 @@
+# Виртуальное окружение
+.venv/
+venv/
+env/
+ENV/
+
+# Кэш Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Переменные окружения
+.env
+.env.local
+
+# БД и логи
+*.db
+*.sqlite
+*.sqlite3
+logs/*
+!logs/.gitkeep
+
+# Временные файлы
+*.tmp
+*.bak
+*.bak.*
+tmp/
+
+# Результаты/кэш
+data/results/
+data/cache/
+
+# macOS
+.DS_Store
+*.plist
+
+# Windows
+Thumbs.db
+*.lnk
