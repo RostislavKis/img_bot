@@ -1,0 +1,31 @@
+name: Docs - Workflows Reference is up-to-date
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+
+jobs:
+  check-workflows-reference:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Generate WORKFLOWS_REFERENCE.md
+        run: python tools/gen_workflows_reference.py
+
+      - name: Verify docs are up-to-date
+        run: |
+          if ! git diff --exit-code docs/WORKFLOWS_REFERENCE.md; then
+            echo "❌ docs/WORKFLOWS_REFERENCE.md is out of sync with workflows/*.json"
+            echo "Run: python tools/gen_workflows_reference.py"
+            exit 1
+          fi
+          echo "✅ WORKFLOWS_REFERENCE.md is up-to-date"

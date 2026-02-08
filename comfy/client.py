@@ -182,19 +182,40 @@ class ComfyUIClient:
         """
         Возвращает приоритет файла по расширению.
         Меньше = выше приоритет.
+        
+        Правила выбора:
+        - video (mp4/webm/mov/avi/mkv) → 0 (TOP)
+        - gif → 1 (высокий приоритет)
+        - image (png/jpg/jpeg/webp/bmp) → 2
+        - прочее → 3
         """
         ext = (filename or "").lower()
+        # Видео: TOP приоритет
         if ext.endswith((".mp4", ".webm", ".mov", ".avi", ".mkv")):
             return 0  # Видео — TOP
+        # GIF: анимация
         if ext.endswith(".gif"):
             return 1  # GIF — высокий приоритет
-        if ext.endswith((".png", ".jpg", ".jpeg", ".webp")):
+        # Статические изображения
+        if ext.endswith((".png", ".jpg", ".jpeg", ".webp", ".bmp")):
             return 2  # Картинки — ниже
+        # Остальное
         return 3  # Остальное
 
     def _extract_first_file(self, history: dict) -> Optional[dict]:
         """
-        Вытаскивает первый найденный output файл из /history.
+        Вытаскивает первый найденный output файл из /history с детальным логированием.
+        
+        Стратегия выбора:
+        1. Собирает ВСЕ файлы из output ключей: videos, gifs, images, files
+        2. Сортирует по приоритету (video > gif > image > прочее) и размеру (больше = лучше)
+        3. Возвращает самый приоритетный
+        
+        Логирует:
+        - Сколько нод в outputs, какие ключи содержат файлы
+        - Список всех найденных кандидатов (filename, type, size, priority)
+        - Финальный выбор + причину (по приоритету или по размеру)
+        - При отсутствии: warning + keys outputs + первые 500 символов JSON
         """
         if not history:
             return None
@@ -203,14 +224,26 @@ class ComfyUIClient:
         if not isinstance(outputs, dict):
             return None
 
+        # Логирование: структура outputs
+        outputs_keys = list(outputs.keys())
+        log.debug(f"📦 Parsing outputs: {len(outputs_keys)} nodes, node_ids={outputs_keys}")
+        
         candidates: List[dict] = []
+        
+        # Собираем все файлы из всех output ключей
         for node_id, out in outputs.items():
             if not isinstance(out, dict):
                 continue
+            
+            # Каждый ключ в output может быть массивом файлов
             for key in ("videos", "gifs", "images", "files"):
                 items = out.get(key)
                 if not isinstance(items, list):
                     continue
+                
+                if items:
+                    log.debug(f"  node {node_id}: {key}[] has {len(items)} item(s)")
+                
                 for it in items:
                     if not isinstance(it, dict):
                         continue
@@ -225,46 +258,60 @@ class ComfyUIClient:
                             "subfolder": sub,
                             "type": ftype,
                             "size": int(sz) if isinstance(sz, (int, float)) else 0,
+                            "key": key,
                         })
-
-        # Сортируем по размеру (больше = выше в списке), далее по приоритету расширения
-        candidates.sort(key=lambda x: (-x["size"], self._get_file_priority(x["filename"])))
-
+        
+        # Логирование: список всех кандидатов
+        if not candidates:
+            import json
+            log.warning(f"❌ No output files found in outputs")
+            log.warning(f"   Output keys examined: videos, gifs, images, files")
+            log.warning(f"   Available output keys: {list(outputs.keys())}")
+            outputs_json_preview = json.dumps(outputs, ensure_ascii=False)[:500]
+            log.warning(f"   Raw outputs (first 500 chars): {outputs_json_preview}")
+            return None
+        
+        log.info(f"📋 Found {len(candidates)} output file candidate(s)")
+        for idx, cand in enumerate(candidates, 1):
+            priority = self._get_file_priority(cand["filename"])
+            priority_label = {0: "video", 1: "gif", 2: "image", 3: "other"}.get(priority, "unknown")
+            log.debug(
+                f"  [{idx}] node={cand['node_id']}, file={cand['filename']}, "
+                f"size={cand['size']} bytes, type={cand['type']}, "
+                f"priority={priority} ({priority_label})"
+            )
+        
+        # Сортируем: сначала по приоритету (меньше = лучше), потом по размеру (больше = лучше)
+        candidates.sort(key=lambda x: (self._get_file_priority(x["filename"]), -x["size"]))
+        
         # Возвращаем самый приоритетный файл
         if candidates:
             best = candidates[0]
+            
+            # Логирование: финальный выбор
+            priority = self._get_file_priority(best["filename"])
+            priority_label = {0: "video", 1: "gif", 2: "image", 3: "other"}.get(priority, "unknown")
+            
+            reason_parts = [f"type={priority_label} (priority={priority})"]
+            if best["size"] > 0:
+                reason_parts.append(f"size={best['size']} bytes")
+            else:
+                reason_parts.append("size=unknown")
+            
+            reason = ", ".join(reason_parts)
+            
+            log.info(
+                f"✓ Selected output: node={best['node_id']}, file={best['filename']}, "
+                f"reason=[{reason}]"
+            )
+            
             return {
                 "node_id": best["node_id"],
                 "filename": best["filename"],
                 "subfolder": best["subfolder"],
                 "type": best["type"],
             }
-
-        return None
-
-    def resolve_outputs(self, history: dict) -> Optional[dict]:
-        """
-        Гарантирует получение первого бинарного output из любого узла.
-        Возвращает {filename, node_id, type}.
-        """
-        try:
-            outputs = history.get("outputs", {})
-            if not outputs:
-                return None
-            for node_id, node in outputs.items():
-                if not isinstance(node, dict):
-                    continue
-                for key, items in node.items():
-                    if isinstance(items, list) and items:
-                        item = items[0] if isinstance(items[0], dict) else None
-                        if item and "filename" in item:
-                            return {
-                                "node_id": str(node_id),
-                                "filename": str(item.get("filename")),
-                                "type": str(item.get("type") or "output"),
-                            }
-        except Exception as e:
-            self.log.warning(f"resolve_outputs_simple failed: {e}")
+        
         return None
 
     async def get_queue_status(self) -> Dict[str, Any]:
