@@ -258,22 +258,77 @@ class ComfyUIClient:
 
         return None
 
+    async def get_queue_status(self) -> Dict[str, Any]:
+        """Получает статус очереди ComfyUI."""
+        try:
+            r = await self.client.get(f"{self.base_url}/queue")
+            if r.status_code == 200:
+                return r.json()
+        except Exception as e:
+            log.warning(f"ComfyUI get_queue failed: {e}")
+        return {}
+
     async def wait_for_result(self, prompt_id: str, timeout: int = 600, poll_sec: float = 1.0) -> Optional[Dict[str, Any]]:
+        """
+        Ждёт результата от ComfyUI с early detection OOM/failures.
+        
+        Если prompt завершился без outputs (OOM/error), быстро возвращает None
+        вместо ожидания полного timeout.
+        """
         deadline = asyncio.get_event_loop().time() + float(timeout)
         last_err: Optional[str] = None
+        check_count = 0
+        
         while asyncio.get_event_loop().time() < deadline:
+            check_count += 1
             try:
+                # Проверяем history
                 h = await self.history(prompt_id)
                 f = self._extract_first_file(h, prompt_id)
                 if f:
                     b = await self.view_bytes(f["filename"], f["subfolder"], f["type"])
                     mime = mimetypes.guess_type(f["filename"])[0] or "application/octet-stream"
+                    log.info(f"Result ready after {check_count} checks")
                     return {"filename": f["filename"], "bytes": b, "mime": mime}
+                
+                # Early detection: если history пустой И queue пустой = prompt failed
+                if check_count > 3:  # После 3 проверок начинаем проверять queue
+                    queue_status = await self.get_queue_status()
+                    
+                    # Проверяем что prompt_id нигде нет
+                    queue_running = queue_status.get("queue_running", [])
+                    queue_pending = queue_status.get("queue_pending", [])
+                    
+                    prompt_in_queue = False
+                    for item in queue_running + queue_pending:
+                        if isinstance(item, list) and len(item) >= 2:
+                            pid = str(item[1] if len(item) > 1 else "")
+                            if pid == prompt_id:
+                                prompt_in_queue = True
+                                break
+                    
+                    # Если prompt не в очереди И history пустой = завершился без outputs
+                    if not prompt_in_queue and not h.get(prompt_id):
+                        log.error(f"Prompt {prompt_id} completed without outputs (likely OOM/error)")
+                        self.last_error = "ComfyUI completed prompt without outputs (likely OOM). Check ComfyUI logs or reduce resolution/frames/steps."
+                        return None
+                    
+                    if check_count % 10 == 0:  # Каждые 10 проверок логируем статус
+                        log.debug(f"Waiting for {prompt_id}: in_queue={prompt_in_queue}, checks={check_count}")
+                
             except Exception as e:
                 last_err = str(e)
+                log.warning(f"wait_for_result check {check_count} error: {e}")
+            
             await asyncio.sleep(poll_sec)
+        
+        # Timeout
         if last_err:
-            log.warning(f"wait_for_result timeout, last error: {last_err}")
+            log.warning(f"wait_for_result timeout after {check_count} checks, last error: {last_err}")
+        else:
+            log.warning(f"wait_for_result timeout after {check_count} checks, no output received")
+        
+        self.last_error = f"Timeout after {timeout}s (no output from ComfyUI)"
         return None
 
     async def upload_image(self, data: bytes, filename: str, subfolder: str = "", overwrite: bool = True) -> Dict[str, str]:

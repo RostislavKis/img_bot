@@ -593,8 +593,8 @@ async def msg_prompt(message: Message, state: FSMContext, settings, t, lang):
 
         # Тюнинг параметров по умолчанию
         if workflow_name == "video_hunyuan15_720p_api":
-            # HunyuanVideo 1.5 I2V специальная обработка (API format)
-            log.info(f"HunyuanVideo 1.5 I2V API workflow detected")
+            # HunyuanVideo 1.5 I2V LOW-VRAM PRESET для 8GB
+            log.info(f"HunyuanVideo 1.5 I2V API workflow detected - applying LOW-VRAM preset")
             
             # Инжект промпта строго в node 44 (CLIPTextEncode Positive)
             if "44" in wf and wf["44"].get("class_type") == "CLIPTextEncode":
@@ -606,34 +606,66 @@ async def msg_prompt(message: Message, state: FSMContext, settings, t, lang):
                 wf["93"].setdefault("inputs", {})["text"] = ""
                 log.info(f"✓ inject HunyuanVideo negative prompt: node=93 (empty)")
             
-            # Настройка параметров HunyuanVideo15ImageToVideo
+            # LOW-VRAM: Настройка параметров HunyuanVideo15ImageToVideo
             for node_id, node in wf.items():
                 if node.get("class_type") == "HunyuanVideo15ImageToVideo":
                     inputs = node.setdefault("inputs", {})
-                    inputs["num_frames"] = 49  # Уменьшаем с 121 до 49 кадров
-                    log.info(f"✓ HunyuanVideo num_frames set to 49 (node={node_id})")
+                    inputs["num_frames"] = 25  # LOW-VRAM: 25 frames (was 121)
+                    # Разрешение: если есть width/height - устанавливаем 640x360
+                    if "width" in inputs:
+                        inputs["width"] = 640
+                    if "height" in inputs:
+                        inputs["height"] = 360
+                    log.info(f"✓ HunyuanVideo LOW-VRAM: num_frames=25, resolution=640x360 (node={node_id})")
             
-            # Настройка FPS в CreateVideo
+            # LOW-VRAM: FPS в CreateVideo
             for node_id, node in wf.items():
                 if node.get("class_type") == "CreateVideo":
                     inputs = node.setdefault("inputs", {})
-                    inputs["fps"] = 16  # Уменьшаем с 24 до 16 FPS
-                    log.info(f"✓ CreateVideo FPS set to 16 (node={node_id})")
+                    inputs["fps"] = 12  # LOW-VRAM: 12 FPS (was 24)
+                    log.info(f"✓ CreateVideo LOW-VRAM: fps=12 (node={node_id})")
+            
+            # LOW-VRAM: Steps и CFG если есть sampler/cfg узлы
+            for node_id, node in wf.items():
+                inputs = node.setdefault("inputs", {})
+                class_type = node.get("class_type", "")
+                
+                # Если есть steps input
+                if "steps" in inputs:
+                    inputs["steps"] = 12  # LOW-VRAM: 12 steps
+                    log.info(f"✓ HunyuanVideo LOW-VRAM: steps=12 (node={node_id})")
+                
+                # Если есть cfg input
+                if "cfg" in inputs or "guidance" in inputs or "guidance_scale" in inputs:
+                    cfg_key = "cfg" if "cfg" in inputs else ("guidance" if "guidance" in inputs else "guidance_scale")
+                    inputs[cfg_key] = 5.5  # LOW-VRAM: CFG 5.5
+                    log.info(f"✓ HunyuanVideo LOW-VRAM: {cfg_key}=5.5 (node={node_id})")
+                
+                # Если есть batch_size
+                if "batch_size" in inputs:
+                    inputs["batch_size"] = 1
+                    log.info(f"✓ HunyuanVideo LOW-VRAM: batch_size=1 (node={node_id})")
             
             # Настройка weight_dtype для UNETLoader (fp8_e4m3fn_fast)
             for node_id, node in wf.items():
                 if node.get("class_type") == "UNETLoader":
                     inputs = node.setdefault("inputs", {})
+                    # Проверяем что поле поддерживается (не ставим невалидные значения)
                     inputs["weight_dtype"] = "fp8_e4m3fn_fast"
-                    log.info(f"✓ UNETLoader weight_dtype set to fp8_e4m3fn_fast (node={node_id})")
+                    log.info(f"✓ UNETLoader weight_dtype=fp8_e4m3fn_fast (node={node_id})")
             
-            # Установка seed если есть noise_seed input
+            # Установка seed если есть noise_seed или seed input
+            seed = random.randint(1, 2_000_000_000)
             for node_id, node in wf.items():
                 inputs = node.setdefault("inputs", {})
                 if "noise_seed" in inputs:
-                    seed = random.randint(1, 2_000_000_000)
                     inputs["noise_seed"] = seed
-                    log.info(f"✓ HunyuanVideo noise_seed set to {seed} (node={node_id})")
+                    log.info(f"✓ HunyuanVideo noise_seed={seed} (node={node_id})")
+                elif "seed" in inputs:
+                    inputs["seed"] = seed
+                    log.debug(f"✓ Seed set to {seed} (node={node_id})")
+            
+            log.info("✓ HunyuanVideo LOW-VRAM preset applied: 640x360, 25 frames, 12 fps, 12 steps, cfg=5.5")
         
         else:
             # Для всех остальных workflow — используем стандартный инжект промпта
@@ -704,9 +736,24 @@ async def msg_prompt(message: Message, state: FSMContext, settings, t, lang):
         # Ждём результата
         result = await client.wait_for_result(pid, timeout=settings.comfy_timeout)
         if not result:
-            raise RuntimeError(
-                "Timeout: ComfyUI не вернул output (проверь очередь/ошибки в ComfyUI)"
-            )
+            # Проверяем last_error для более информативного сообщения
+            error_msg = client.last_error or "Timeout: ComfyUI не вернул output"
+            
+            # Специальное сообщение для HunyuanVideo OOM
+            if workflow_name == "video_hunyuan15_720p_api" and "OOM" in error_msg.upper():
+                error_msg = (
+                    "❌ ComfyUI завершился без результата (вероятно OOM - нехватка VRAM).\n\n"
+                    "💡 Рекомендации:\n"
+                    "• Перезапустите ComfyUI с флагом --lowvram\n"
+                    "• Уменьшите разрешение/кадры в workflow\n"
+                    "• Закройте другие программы, использующие GPU\n\n"
+                    f"Детали: {client.last_error}"
+                )
+            else:
+                error_msg = f"❌ {error_msg}\n\nПроверьте логи ComfyUI или очередь задач."
+            
+            log.error(f"Generation failed: {error_msg}")
+            raise RuntimeError(error_msg)
 
         filename = str(result["filename"])
         out_bytes = bytes(result["bytes"])
