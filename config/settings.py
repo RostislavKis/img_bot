@@ -121,6 +121,16 @@ def load_settings() -> Settings:
     return Settings()
 
 
+# --- ensure module exports "settings" (needed by callbacks) ---
+if "settings" not in globals():
+    if "Settings" in globals():
+        settings = Settings()  # type: ignore[name-defined]
+    elif "get_settings" in globals():
+        settings = get_settings()  # type: ignore[name-defined]
+    else:
+        raise RuntimeError("config.settings: не найден ни Settings, ни get_settings(), и нет переменной settings")
+
+
 
 
 

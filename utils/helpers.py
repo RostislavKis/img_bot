@@ -38,3 +38,24 @@ def truncate_text(text: str, max_len: int = 50) -> str:
     if len(text) <= max_len:
         return text
     return text[:max_len-3] + "..."
+
+
+def get_lang(obj=None, default: str = "ru") -> str:
+    """
+    Возвращает 'ru' или 'en' по language_code пользователя.
+    Поддерживает Message / CallbackQuery / User.
+    """
+    try:
+        # CallbackQuery -> берём callback.from_user
+        u = getattr(obj, "from_user", None)
+        if u and getattr(u, "language_code", None):
+            code = (u.language_code or "").lower()
+            return "ru" if code.startswith("ru") else "en"
+
+        # Message -> берём message.from_user
+        if getattr(obj, "language_code", None):
+            code = (obj.language_code or "").lower()
+            return "ru" if code.startswith("ru") else "en"
+    except Exception:
+        pass
+    return default

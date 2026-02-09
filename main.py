@@ -19,6 +19,8 @@ from bot.middlewares.i18n import I18nMiddleware
 from bot.handlers import start_router, help_router, generate_router
 from comfy.client import ComfyUIClient
 from comfy.workflow_loader import WorkflowLoader
+from core.telegram_pipeline import TelegramComfyPipeline, PipelineConfig
+from bot.handlers.t005_pipeline_demo import router as t005_demo_router
 
 async def smoke(settings) -> int:
     log = get_logger("smoke")
@@ -71,6 +73,7 @@ async def run_bot(settings) -> int:
     bot.comfy_client = comfy_client
     bot.workflow_loader = workflow_loader
     
+    # Инициализируем Dispatcher ПЕРЕД использовании
     dp = Dispatcher(storage=MemoryStorage())
     auth = AuthMiddleware(settings.allowed_user_ids)
     i18n = I18nMiddleware(repo=repo, locales=locales, default_language=settings.default_language)
@@ -81,6 +84,22 @@ async def run_bot(settings) -> int:
     dp.include_router(start_router)
     dp.include_router(generate_router)
     dp.include_router(help_router)
+    dp.include_router(t005_demo_router)
+    
+    # Инициализируем pipeline для очереди задач
+    pipeline = TelegramComfyPipeline(bot, PipelineConfig())
+    dp["pipeline"] = pipeline
+    bot.pipeline = pipeline
+    
+    # Startup/shutdown хуки для pipeline
+    async def _on_startup(*_):
+        await pipeline.start()
+    
+    async def _on_shutdown(*_):
+        await pipeline.stop()
+    
+    dp.startup.register(_on_startup)
+    dp.shutdown.register(_on_shutdown)
     
     log.info("Bot polling start")
     try:

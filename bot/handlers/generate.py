@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import random
+import re
 from io import BytesIO
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple, NamedTuple
@@ -24,9 +25,39 @@ from utils.files import ensure_comfy_input_image, save_telegram_photo, validate_
 router = Router()
 log = get_logger(__name__)
 
+_TRANSLATE_ENABLED = os.getenv("PROMPT_TRANSLATE", "1") != "0"
+_CYR = re.compile(r"[А-Яа-яЁё]")
+_translate_cache: dict[str, str] = {}
+_translate_warned = False
+
+
 # Workflow constants
 WORKFLOW_IMAGE_DEFAULT = "image_default"
 WORKFLOW_IMAGE_REFINER = "sdxl_base_refiner"
+WORKFLOW_FLUX_DEV_IMG2IMG = "flux_dev_fp8_img2img"
+WORKFLOW_FLUX_SCHNELL_IMG2IMG = "flux_schnell_fp8_img2img"
+
+
+def _translate_ru_to_en_if_needed(text: str) -> str:
+    global _translate_warned
+    if not _TRANSLATE_ENABLED:
+        return text
+    if not text or not _CYR.search(text):
+        return text
+    if text in _translate_cache:
+        return _translate_cache[text]
+    try:
+        from argostranslate import translate as _argos_translate
+        out = _argos_translate.translate(text, "ru", "en")
+        out = out.strip() if isinstance(out, str) else text
+        _translate_cache[text] = out
+        return out
+    except Exception:
+        if not _translate_warned:
+            _translate_warned = True
+            log.warning("PROMPT_TRANSLATE включен, но argostranslate недоступен/не настроен — отправляю RU как есть")
+        return text
+
 
 # -----------------------------
 # HunyuanVideo VRAM-aware presets + auto-fallback
@@ -683,14 +714,20 @@ def _inject_mask_image(workflow: Dict[str, Any], mask_file: str) -> bool:
     return injected
 
 
-def _workflow_exists(loader: WorkflowLoader, name: str) -> bool:
-    try:
-        idx = getattr(loader, "_index", None)
-        if isinstance(idx, dict):
-            return name in idx
-    except Exception:
-        pass
-    return False
+def _inject_denoise(workflow: Dict[str, Any], *, denoise: float | None) -> None:
+    if denoise is None:
+        return
+    for _, node in workflow.items():
+        if not isinstance(node, dict):
+            continue
+        inputs = node.get("inputs")
+        if not isinstance(inputs, dict):
+            continue
+        if "denoise" in inputs:
+            try:
+                inputs["denoise"] = float(denoise)
+            except Exception:
+                pass
 
 
 async def _send_result_to_telegram(message: Message, *, out_bytes: bytes, filename: str, mime: str) -> None:
@@ -772,6 +809,7 @@ async def _run_image_job(
     prompt: str,
     negative: str = "",
     mask_image_name: str | None = None,
+    denoise: float | None = None,
     settings = None,
 ) -> None:
     wf_name = workflow_name
@@ -784,6 +822,7 @@ async def _run_image_job(
         ok = _inject_mask_image(wf, mask_image_name)
         if not ok:
             log.warning("Mask mode requested but no mask inputs found in workflow=%s (mask will be ignored).", wf_name)
+    _inject_denoise(wf, denoise=denoise)
     _inject_prompt(wf, prompt, negative_prompt=negative)
 
     pid = await client.queue_prompt(wf)
@@ -935,8 +974,16 @@ async def msg_prompt(message: Message, state: FSMContext, settings, t, lang):
         client = ComfyUIClient(settings.comfy_url, settings.comfy_timeout)
         loader = WorkflowLoader(settings.workflows_dir)
 
+        wf_name = st.get("pending_photo_workflow") or WORKFLOW_IMAGE_DEFAULT
+        denoise = st.get("pending_photo_denoise")
+        if pending == "edit_mask_prompt":
+            wf_name = WORKFLOW_IMAGE_DEFAULT
+            if denoise is None:
+                denoise = 0.65
+
         user_prompt = raw
         prompt = f"{user_prompt}. Keep the same subject identity and scene layout, realistic, natural light, coherent details."
+        prompt = _translate_ru_to_en_if_needed(prompt)
         negative = "blurry, lowres, deformed, artifacts, bad anatomy, cartoon, anime, text, watermark"
 
         await message.answer("🛠️ Редактирую…")
@@ -945,11 +992,12 @@ async def msg_prompt(message: Message, state: FSMContext, settings, t, lang):
                 message=message,
                 client=client,
                 loader=loader,
-                workflow_name=WORKFLOW_IMAGE_DEFAULT,
+                workflow_name=wf_name,
                 input_image_name=last_photo,
                 mask_image_name=mask_photo,
                 prompt=prompt,
                 negative=negative,
+                denoise=denoise,
                 settings=settings,
             )
         except Exception as e:
@@ -958,7 +1006,7 @@ async def msg_prompt(message: Message, state: FSMContext, settings, t, lang):
         finally:
             await client.close()
 
-        await state.update_data(pending_photo_action=None, mask_photo_comfy=None)
+        await state.update_data(pending_photo_action=None, mask_photo_comfy=None, pending_photo_workflow=None, pending_photo_denoise=None)
         await message.answer("🏠 Главное меню:", reply_markup=get_main_menu_keyboard(lang))
         return
 
@@ -985,6 +1033,8 @@ async def msg_prompt(message: Message, state: FSMContext, settings, t, lang):
         await message.answer("✍️ Введите промт одним сообщением.", reply_markup=get_back_keyboard(lang))
         return
 
+    prompt = _translate_ru_to_en_if_needed(prompt)
+
     # Логика выбора workflow при наличии фото (входного изображения)
     input_image_comfy_name = st.get("input_image_comfy_name")
     if input_image_comfy_name:
@@ -1001,7 +1051,7 @@ async def msg_prompt(message: Message, state: FSMContext, settings, t, lang):
             # Видео с фото? Ок, может быть animation из изображения
             log.info(f"Фото загружено + video mode: используем video_default с входным изображением")
         # Если указан xl: или sdxl — не меняем
-        # Если указан edit: — используем image_edit если он есть, иначе sdxl_base_refiner
+        # Если указан edit: — используем image_default или FLUX img2img (если доступен)
 
     await state.set_state(GenStates.running)
     status_msg = await message.answer("⏳ Обработка...", parse_mode="HTML")
@@ -1330,7 +1380,7 @@ async def msg_prompt(message: Message, state: FSMContext, settings, t, lang):
 
 
 @router.callback_query(F.data.in_({PHOTO_ACTION_ENHANCE, PHOTO_ACTION_EDIT_PROMPT, PHOTO_ACTION_EDIT_MASK}))
-async def cb_photo_actions(callback: CallbackQuery, state: FSMContext) -> None:
+async def cb_photo_actions(callback: CallbackQuery, state: FSMContext, settings) -> None:
     from bot.keyboards.main_menu import get_main_menu_keyboard
     from utils.helpers import get_lang
     
@@ -1344,13 +1394,20 @@ async def cb_photo_actions(callback: CallbackQuery, state: FSMContext) -> None:
     action = callback.data
     await callback.answer()
 
-    if action == PHOTO_ACTION_ENHANCE:
-        from config.settings import settings
-        client = ComfyUIClient(settings.comfy_url, settings.comfy_timeout)
+    loader = callback.bot.get("workflow_loader")
+    if loader is None:
         loader = WorkflowLoader(settings.workflows_dir)
+
+    wf_name = WORKFLOW_IMAGE_DEFAULT
+    if _workflow_exists(loader, WORKFLOW_FLUX_DEV_IMG2IMG):
+        wf_name = WORKFLOW_FLUX_DEV_IMG2IMG
+    elif _workflow_exists(loader, WORKFLOW_FLUX_SCHNELL_IMG2IMG):
+        wf_name = WORKFLOW_FLUX_SCHNELL_IMG2IMG
+
+    if action == PHOTO_ACTION_ENHANCE:
+        client = ComfyUIClient(settings.comfy_url, settings.comfy_timeout)
         prompt = "enhance photo, keep subject and composition, more details, sharp focus, realistic, high quality"
         negative = "blurry, lowres, deformed, artifacts, bad anatomy, cartoon, anime, oversaturated"
-        wf_name = WORKFLOW_IMAGE_REFINER if _workflow_exists(loader, WORKFLOW_IMAGE_REFINER) else WORKFLOW_IMAGE_DEFAULT
         await callback.message.answer("✨ Улучшаю фото…")
         try:
             await _run_image_job(
@@ -1361,6 +1418,7 @@ async def cb_photo_actions(callback: CallbackQuery, state: FSMContext) -> None:
                 input_image_name=last_photo,
                 prompt=prompt,
                 negative=negative,
+                denoise=0.25,
                 settings=settings,
             )
         except Exception as e:
@@ -1371,18 +1429,28 @@ async def cb_photo_actions(callback: CallbackQuery, state: FSMContext) -> None:
         return
 
     if action == PHOTO_ACTION_EDIT_PROMPT:
-        await state.update_data(pending_photo_action="edit_prompt", mask_photo_comfy=None)
+        await state.update_data(
+            pending_photo_action="edit_prompt",
+            mask_photo_comfy=None,
+            pending_photo_workflow=wf_name,
+            pending_photo_denoise=0.55,
+        )
         await callback.message.answer("✏️ Пришли промпт для редактирования (что изменить/добавить).")
         return
 
     if action == PHOTO_ACTION_EDIT_MASK:
-        await state.update_data(pending_photo_action="edit_mask_wait_mask", mask_photo_comfy=None)
+        await state.update_data(
+            pending_photo_action="edit_mask_wait_mask",
+            mask_photo_comfy=None,
+            pending_photo_workflow=WORKFLOW_IMAGE_DEFAULT,
+            pending_photo_denoise=0.65,
+        )
         await callback.message.answer("🎭 Пришли маску (ч/б: белым — менять, чёрным — оставить).")
         return
 
 
 @router.message(F.photo)
-async def msg_photo_mask_router(message: Message, state: FSMContext) -> None:
+async def msg_photo_mask_router(message: Message, state: FSMContext, settings) -> None:
     """
     Если пользователь в режиме mask-edit и прислал фото — это маска.
     """
@@ -1391,7 +1459,6 @@ async def msg_photo_mask_router(message: Message, state: FSMContext) -> None:
         return
 
     from utils.helpers import get_lang
-    from config.settings import settings
     
     lang = get_lang(message)
     mask_name = await save_telegram_photo(message, settings.tmp_dir, prefix="mask")
