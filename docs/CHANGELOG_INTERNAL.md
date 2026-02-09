@@ -280,6 +280,26 @@ python main.py
 
 Pipeline автоматически определит доступные методы и вызовет подходящий.
 
+---
+
+## 2025-01-17 — T-005.1: Fix ComfyUIClient.download_file (убраны отсутствующие self.log и _download_file_once)
+
+**Цель:** Исправить баг в `comfy/client.py` где метод `download_file()` ссылался на несуществующие `self.log` и `_download_file_once()`.
+
+**Тикет:** T-005.1
+
+**Исправлено:**
+- `comfy/client.py` — метод `download_file()`
+  - Теперь является совместимой обёрткой над `view_bytes()`
+  - Убраны ссылки на отсутствующие `self.log` (используется глобальный `log`)
+  - Убраны ссылки на отсутствующий метод `_download_file_once()`
+  - Добавлена docstring с пояснением истории метода
+
+**Результат:**
+- `download_file()` корректно работает как alias для `view_bytes()`
+- Нет AttributeError при вызове `download_file()`
+- Обратная совместимость сохранена
+
 
 
 

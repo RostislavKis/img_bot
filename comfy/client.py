@@ -37,6 +37,7 @@ class ComfyUIClient:
     async def object_info(self) -> Dict[str, Any]:
         try:
             r = await self.client.get(f"{self.base_url}/object_info")
+
             if r.status_code == 200:
                 return r.json()
             log.warning(f"ComfyUI object_info status={r.status_code} body={r.text[:200]}")
@@ -82,6 +83,7 @@ class ComfyUIClient:
     def _summarize_prompt_error(self, body: str) -> str:
         try:
             import json
+
             j = json.loads(body)
             if isinstance(j, dict):
                 if "node_errors" in j and isinstance(j["node_errors"], dict):
@@ -97,14 +99,13 @@ class ComfyUIClient:
                                 details = str(e.get("details") or "")
                                 msg = str(e.get("message") or "")
                                 if details or msg:
-                                    parts.append(f"node {node_id}: {details or msg}")
+                                    s = (msg + " " + details).strip()
+                                    if s:
+                                        parts.append(f"{node_id}:{s}")
                     if parts:
                         return "; ".join(parts)[:350]
-                err = j.get("error")
-                if isinstance(err, dict):
-                    m = str(err.get("message") or "")
-                    t = str(err.get("type") or "")
-                    s = (t + ": " + m).strip(": ").strip()
+                if "error" in j:
+                    s = str(j["error"]).strip()
                     if s:
                         return s[:350]
         except Exception:
@@ -182,7 +183,7 @@ class ComfyUIClient:
         """
         Возвращает приоритет файла по расширению.
         Меньше = выше приоритет.
-        
+
         Правила выбора:
         - video (mp4/webm/mov/avi/mkv) → 0 (TOP)
         - gif → 1 (высокий приоритет)
@@ -205,12 +206,12 @@ class ComfyUIClient:
     def _extract_first_file(self, history: dict) -> Optional[dict]:
         """
         Вытаскивает первый найденный output файл из /history с детальным логированием.
-        
+
         Стратегия выбора:
         1. Собирает ВСЕ файлы из output ключей: videos, gifs, images, files
-        2. Сортирует по приоритету (video > gif > image > прочее) и размеру (больше = лучше)
+        2. Сортирует по приоритету (video > gif > image > other) и размеру (больше = лучше)
         3. Возвращает самый приоритетный
-        
+
         Логирует:
         - Сколько нод в outputs, какие ключи содержат файлы
         - Список всех найденных кандидатов (filename, type, size, priority)
@@ -227,23 +228,23 @@ class ComfyUIClient:
         # Логирование: структура outputs
         outputs_keys = list(outputs.keys())
         log.debug(f"📦 Parsing outputs: {len(outputs_keys)} nodes, node_ids={outputs_keys}")
-        
+
         candidates: List[dict] = []
-        
+
         # Собираем все файлы из всех output ключей
         for node_id, out in outputs.items():
             if not isinstance(out, dict):
                 continue
-            
+
             # Каждый ключ в output может быть массивом файлов
             for key in ("videos", "gifs", "images", "files"):
                 items = out.get(key)
                 if not isinstance(items, list):
                     continue
-                
+
                 if items:
                     log.debug(f"  node {node_id}: {key}[] has {len(items)} item(s)")
-                
+
                 for it in items:
                     if not isinstance(it, dict):
                         continue
@@ -252,25 +253,28 @@ class ComfyUIClient:
                     ftype = it.get("type") or "output"
                     sz = it.get("size") or 0
                     if fn:
-                        candidates.append({
-                            "node_id": str(node_id),
-                            "filename": fn,
-                            "subfolder": sub,
-                            "type": ftype,
-                            "size": int(sz) if isinstance(sz, (int, float)) else 0,
-                            "key": key,
-                        })
-        
+                        candidates.append(
+                            {
+                                "node_id": str(node_id),
+                                "filename": fn,
+                                "subfolder": sub,
+                                "type": ftype,
+                                "size": int(sz) if isinstance(sz, (int, float)) else 0,
+                                "key": key,
+                            }
+                        )
+
         # Логирование: список всех кандидатов
         if not candidates:
             import json
-            log.warning(f"❌ No output files found in outputs")
-            log.warning(f"   Output keys examined: videos, gifs, images, files")
+
+            log.warning("❌ No output files found in outputs")
+            log.warning("   Output keys examined: videos, gifs, images, files")
             log.warning(f"   Available output keys: {list(outputs.keys())}")
             outputs_json_preview = json.dumps(outputs, ensure_ascii=False)[:500]
             log.warning(f"   Raw outputs (first 500 chars): {outputs_json_preview}")
             return None
-        
+
         log.info(f"📋 Found {len(candidates)} output file candidate(s)")
         for idx, cand in enumerate(candidates, 1):
             priority = self._get_file_priority(cand["filename"])
@@ -280,38 +284,38 @@ class ComfyUIClient:
                 f"size={cand['size']} bytes, type={cand['type']}, "
                 f"priority={priority} ({priority_label})"
             )
-        
+
         # Сортируем: сначала по приоритету (меньше = лучше), потом по размеру (больше = лучше)
         candidates.sort(key=lambda x: (self._get_file_priority(x["filename"]), -x["size"]))
-        
+
         # Возвращаем самый приоритетный файл
         if candidates:
             best = candidates[0]
-            
+
             # Логирование: финальный выбор
             priority = self._get_file_priority(best["filename"])
             priority_label = {0: "video", 1: "gif", 2: "image", 3: "other"}.get(priority, "unknown")
-            
+
             reason_parts = [f"type={priority_label} (priority={priority})"]
             if best["size"] > 0:
                 reason_parts.append(f"size={best['size']} bytes")
             else:
                 reason_parts.append("size=unknown")
-            
+
             reason = ", ".join(reason_parts)
-            
+
             log.info(
                 f"✓ Selected output: node={best['node_id']}, file={best['filename']}, "
                 f"reason=[{reason}]"
             )
-            
+
             return {
                 "node_id": best["node_id"],
                 "filename": best["filename"],
                 "subfolder": best["subfolder"],
                 "type": best["type"],
             }
-        
+
         return None
 
     async def get_queue_status(self) -> Dict[str, Any]:
@@ -344,29 +348,30 @@ class ComfyUIClient:
         return None
 
     async def wait_for_result(
-        self, 
-        prompt_id: str, 
-        timeout: int = 600, 
+        self,
+        prompt_id: str,
+        timeout: int = 600,
         poll_sec: float = 1.0,
-        history_retry: int = 5
+        history_retry: int = 5,
     ) -> Optional[Dict[str, Any]]:
         """
         Ждёт результата от ComfyUI с robust output resolver.
-        
+
         Args:
             prompt_id: ID промпта
             timeout: общий timeout (секунды)
             poll_sec: интервал проверки (секунды)
             history_retry: сколько раз повторять /history если пустой после completion
-        
+
         Returns:
             {"filename": ..., "bytes": ..., "mime": ...} или None
         """
         deadline = asyncio.get_event_loop().time() + float(timeout)
         last_err: Optional[str] = None
+
         check_count = 0
         empty_history_retries = 0
-        
+
         while asyncio.get_event_loop().time() < deadline:
             check_count += 1
             try:
@@ -396,15 +401,15 @@ class ComfyUIClient:
                                 }
                             else:
                                 log.warning(f"File found but download failed: {f['filename']}")
-                
+
                 # Early detection: если history пустой И queue пустой = prompt failed/completed
                 if check_count > 3:  # После 3 проверок начинаем проверять queue
                     queue_status = await self.get_queue_status()
-                    
+
                     # Проверяем что prompt_id нигде нет
                     queue_running = queue_status.get("queue_running", [])
                     queue_pending = queue_status.get("queue_pending", [])
-                    
+
                     prompt_in_queue = False
                     for item in queue_running + queue_pending:
                         if isinstance(item, list) and len(item) >= 2:
@@ -412,7 +417,7 @@ class ComfyUIClient:
                             if pid == prompt_id:
                                 prompt_in_queue = True
                                 break
-                    
+
                     # Если prompt не в очереди
                     if not prompt_in_queue:
                         # ROBUST: если history пустой - retry несколько раз
@@ -436,7 +441,7 @@ class ComfyUIClient:
                                     "Check ComfyUI logs or reduce resolution/frames/steps."
                                 )
                                 return None
-                        
+
                         # History есть, но outputs пустые
                         else:
                             prompt_status = h[prompt_id].get("status", {})
@@ -447,25 +452,25 @@ class ComfyUIClient:
                             )
                             self.last_error = f"Prompt completed with status '{status_str}' but no outputs"
                             return None
-                    
+
                     if check_count % 10 == 0:  # Каждые 10 проверок логируем статус
                         log.debug(
                             f"Waiting for {prompt_id}: in_queue={prompt_in_queue}, "
                             f"checks={check_count}, empty_retries={empty_history_retries}"
                         )
-                
+
             except Exception as e:
                 last_err = str(e)
                 log.warning(f"wait_for_result check {check_count} error: {e}")
-            
+
             await asyncio.sleep(poll_sec)
-        
+
         # Timeout
         if last_err:
             log.warning(f"wait_for_result timeout after {check_count} checks, last error: {last_err}")
         else:
             log.warning(f"wait_for_result timeout after {check_count} checks, no output received")
-        
+
         self.last_error = f"Timeout after {timeout}s (no output from ComfyUI)"
         return None
 
@@ -502,16 +507,10 @@ class ComfyUIClient:
 
     async def download_file(self, filename: str, subfolder: str = "", file_type: str = "output") -> bytes:
         """
-        Скачивает файл через /view с ретраями.
+        Скачивает файл через /view.
+
+        Исторически в проекте использовался download_file(); сейчас базовый и самый надёжный
+        путь — view_bytes() (с ретраями и логированием). Поэтому download_file() является
+        совместимой обёрткой над view_bytes().
         """
-        last_err: Exception | None = None
-        for attempt in range(1, 4):
-            try:
-                return await self._download_file_once(filename, subfolder=subfolder, file_type=file_type)
-            except Exception as e:
-                last_err = e
-                self.log.warning("download /view failed attempt=%s filename=%s: %s", attempt, filename, e)
-                await asyncio.sleep(0.5 * attempt)
-        if last_err:
-            raise last_err
-        raise RuntimeError("download_file failed")
+        return await self.view_bytes(filename, subfolder=subfolder, file_type=file_type)
