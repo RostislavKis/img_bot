@@ -204,6 +204,82 @@ python tools/smoke_check.py --url http://192.168.1.100:8188 --timeout 5.0
 - Репозиторий детерминированный: одинаковый контент → одинаковый git diff
 - Pre-commit hooks (в .githooks/) корректно работают на всех платформах
 
+---
+
+## 2025-01-17 — T-005: Сквозной пайплайн Telegram → ComfyUI → output → отправка
+
+**Цель:** Создать полноценный асинхронный пайплайн для обработки запросов генерации через Telegram с очередью, воркерами, таймаутами, retry-логикой и отправкой результатов.
+
+**Тикет:** T-005
+
+**Добавлено:**
+- `core/job_queue.py` — очередь задач с воркерами
+  - Класс `Job` — задача с метаданными (kind, chat_id, user_id, payload, timeouts, retries)
+  - Класс `JobQueue` — асинхронная очередь с N воркерами
+  - `JobStatus` enum: queued, running, retrying, done, failed, canceled
+  - Retry-логика: экспоненциальный backoff с джиттером
+  - Timeout на выполнение задачи (asyncio.timeout)
+  - Cancel support: graceful отмена через Event
+  - Callbacks: on_status, on_done, on_error для интеграции с UI
+
+- `core/telegram_pipeline.py` — интеграция Telegram + ComfyUI
+  - Класс `TelegramComfyPipeline` — главный пайплайн
+  - `enqueue_from_message()` — создание job из Telegram сообщения
+  - Автоматическое обновление статус-сообщения в Telegram
+  - Определение типа результата по расширению (video/gif/image/file)
+  - Отправка результата в Telegram: send_video/send_animation/send_photo/send_document
+  - Универсальный worker для comfy/client.py (пробует разные сигнатуры методов)
+  - Обработка Telegram rate limits (TelegramRetryAfter)
+  - Настройки через переменные окружения: PIPELINE_CONCURRENCY, PIPELINE_TIMEOUT_IMAGE_S, PIPELINE_TIMEOUT_VIDEO_S
+
+- `bot/handlers/t005_pipeline_demo.py` — демо handler
+  - `/gen <prompt>` — генерация изображения через pipeline
+  - `/video <prompt>` — генерация видео через pipeline
+  - `/cancel` — отмена последней задачи пользователя
+
+**Результат:**
+- Полноценная очередь задач с контролем concurrency (по умолчанию 2 воркера)
+- Автоматические retry при сетевых/временных ошибках (по умолчанию 2 повтора)
+- Timeouts: 600s для изображений, 1800s для видео (настраиваются)
+- Graceful shutdown воркеров при остановке бота
+- Универсальная интеграция с comfy/client.py (не требует конкретной сигнатуры)
+- Telegram rate limit handling (автоматический retry после sleep)
+- Понятные статус-сообщения на русском
+
+**Как использовать:**
+
+1. Добавить в main.py:
+```python
+from core.telegram_pipeline import TelegramComfyPipeline, PipelineConfig
+from bot.handlers.t005_pipeline_demo import router as t005_demo_router
+
+pipeline = TelegramComfyPipeline(bot, PipelineConfig())
+bot["pipeline"] = pipeline
+
+dp.startup.register(lambda: pipeline.start())
+dp.shutdown.register(lambda: pipeline.stop())
+
+dp.include_router(t005_demo_router)
+```
+
+2. Запустить бота:
+```sh
+python main.py
+```
+
+3. В Telegram:
+- `/gen beautiful sunset over mountains` → генерация изображения
+- `/video dancing cat` → генерация видео
+- `/cancel` → отмена текущей задачи
+
+**Требования к comfy/client.py:**
+
+Один из вариантов:
+- Функция `run_job(kind, payload) -> path/dict`
+- Класс `ComfyClient` с методом `run(kind, payload)`, `execute(...)`, `generate(...)`, `generate_image(...)` или `generate_video(...)`
+
+Pipeline автоматически определит доступные методы и вызовет подходящий.
+
 
 
 

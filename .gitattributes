@@ -1,4 +1,4 @@
-﻿# Normalize text files to LF in repo, keep working tree sane on Windows.
+# Normalize text files to LF in repo, keep working tree sane on Windows.
 # This prevents noisy warnings and CI diffs.
 
 * text=auto eol=lf
